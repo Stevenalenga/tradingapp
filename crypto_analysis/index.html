@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cryptocurrency Market Analysis</title>
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --secondary-color: #2ecc71;
+            --accent-color: #f39c12;
+            --danger-color: #e74c3c;
+            --dark-color: #2c3e50;
+            --light-color: #ecf0f1;
+            --text-color: #333;
+            --light-text: #f8f9fa;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: var(--light-color);
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        h1 {
+            color: var(--dark-color);
+            margin-bottom: 10px;
+        }
+        
+        .date {
+            color: #777;
+            font-size: 1.1rem;
+        }
+        
+        .summary-section {
+            margin-bottom: 40px;
+        }
+        
+        h2 {
+            color: var(--primary-color);
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--primary-color);
+        }
+        
+        .crypto-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .crypto-card {
+            background-color: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .crypto-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+        }
+        
+        .card-header {
+            padding: 15px;
+            background-color: var(--dark-color);
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .card-header h3 {
+            margin: 0;
+            font-size: 1.4rem;
+        }
+        
+        .card-body {
+            padding: 20px;
+        }
+        
+        .performance {
+            font-size: 1.8rem;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        
+        .bullish {
+            color: var(--secondary-color);
+        }
+        
+        .bearish {
+            color: var(--danger-color);
+        }
+        
+        .neutral {
+            color: var(--accent-color);
+        }
+        
+        .weak {
+            color: #95a5a6;
+        }
+        
+        .trend-label {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        
+        .trend-bullish {
+            background-color: rgba(46, 204, 113, 0.2);
+            color: var(--secondary-color);
+        }
+        
+        .trend-strong-bullish {
+            background-color: rgba(46, 204, 113, 0.3);
+            color: #27ae60;
+        }
+        
+        .trend-bearish {
+            background-color: rgba(231, 76, 60, 0.2);
+            color: var(--danger-color);
+        }
+        
+        .trend-neutral {
+            background-color: rgba(243, 156, 18, 0.2);
+            color: var(--accent-color);
+        }
+        
+        .trend-warming {
+            background-color: rgba(243, 156, 18, 0.3);
+            color: #d35400;
+        }
+        
+        .trend-weak {
+            background-color: rgba(149, 165, 166, 0.2);
+            color: #7f8c8d;
+        }
+        
+        .drivers {
+            margin-top: 15px;
+            font-size: 0.95rem;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background-color: var(--primary-color);
+            color: white;
+        }
+        
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        
+        .news-section {
+            margin-top: 40px;
+        }
+        
+        .news-item {
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .news-title {
+            font-size: 1.2rem;
+            color: var(--primary-color);
+            margin-bottom: 5px;
+        }
+        
+        .news-source {
+            color: #777;
+            font-size: 0.9rem;
+            margin-bottom: 10px;
+        }
+        
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            color: #777;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 8px 16px;
+            background-color: var(--primary-color);
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            transition: background-color 0.3s ease;
+        }
+        
+        .btn:hover {
+            background-color: #2980b9;
+        }
+        
+        .market-overview {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+        
+        .market-overview p {
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Cryptocurrency Market Analysis</h1>
+            <p class="date">May 14, 2025</p>
+        </header>
+        
+        <section class="summary-section">
+            <h2>Market Overview</h2>
+            <div class="market-overview">
+                <p>The cryptocurrency market is currently experiencing significant momentum, particularly in the memecoin sector. Several altcoins have posted triple-digit weekly gains, indicating a potential altseason in progress. Bitcoin's recent stability has provided a foundation for altcoin growth, while Ethereum's technical improvements continue to strengthen its ecosystem.</p>
+                <p>Solana-based tokens are showing exceptional strength, with multiple memecoins in the ecosystem posting 100%+ weekly returns. This trend appears to be driven by increased social media attention, influencer backing, and the overall momentum of the Solana network.</p>
+            </div>
+        </section>
+        
+        <section class="summary-section">
+            <h2>Top Performers</h2>
+            <div class="crypto-grid">
+                <div class="crypto-card">
+                    <div class="card-header">
+                        <h3>SHIB</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="performance bullish">+130%</div>
+                        <div class="drivers">Altseason inflow, memecoin resurgence</div>
+                        <div class="trend-label trend-strong-bullish">Strong Bullish</div>
+                    </div>
+                </div>
+                
+                <div class="crypto-card">
+                    <div class="card-header">
+                        <h3>WIF</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="performance bullish">+100%+</div>
+                        <div class="drivers">Social hype, Solana ecosystem momentum</div>
+                        <div class="trend-label trend-bullish">Bullish</div>
+                    </div>
+                </div>
+                
+                <div class="crypto-card">
+                    <div class="card-header">
+                        <h3>PEPE</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="performance bullish">+100%+</div>
+                        <div class="drivers">Community-driven, high volatility</div>
+                        <div class="trend-label trend-bullish">Bullish</div>
+                    </div>
+                </div>
+                
+                <div class="crypto-card">
+                    <div class="card-header">
+                        <h3>BONK</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="performance bullish">+100%+</div>
+                        <div class="drivers">Solana memecoin pump, influencer backing</div>
+                        <div class="trend-label trend-bullish">Bullish</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <section class="summary-section">
+            <h2>Major Cryptocurrencies</h2>
+            <div class="crypto-grid">
+                <div class="crypto-card">
+                    <div class="card-header">
+                        <h3>BTC</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="performance neutral">+5%</div>
+                        <div class="drivers">Institutional inflows, $1B exits Coinbase in a day, supply shock warnings</div>
+                        <div class="trend-label trend-bullish">Bullish</div>
+                    </div>
+                </div>
+                
+                <div class="crypto-card">
+                    <div class="card-header">
+                        <h3>ETH</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="performance bullish">+29%</div>
+                        <div class="drivers">Technical improvements, $10K price predictions, gains vs. SOL and XRP</div>
+                        <div class="trend-label trend-bullish">Bullish</div>
+                    </div>
+                </div>
+                
+                <div class="crypto-card">
+                    <div class="card-header">
+                        <h3>XRP</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="performance neutral">+8%</div>
+                        <div class="drivers">Whale flow patterns similar to previous 400% rally</div>
+                        <div class="trend-label trend-bullish">Bullish</div>
+                    </div>
+                </div>
+                
+                <div class="crypto-card">
+                    <div class="card-header">
+                        <h3>SOL</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="performance bullish">+15%</div>
+                        <div class="drivers">Ecosystem growth, meta chain proposal, memecoin momentum</div>
+                        <div class="trend-label trend-bullish">Bullish</div>
+                    </div>
+                </div>
+                
+                <div class="crypto-card">
+                    <div class="card-header">
+                        <h3>DOGE</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="performance neutral">Not updated weekly</div>
+                        <div class="drivers">Historical cycle leader, BTC correlation</div>
+                        <div class="trend-label trend-warming">Warming Up</div>
+                    </div>
+                </div>
+                
+                <div class="crypto-card">
+                    <div class="card-header">
+                        <h3>TAU</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="performance weak">Unreported</div>
+                        <div class="drivers">No major catalyst or listing activity</div>
+                        <div class="trend-label trend-weak">Neutral to Weak</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <section class="summary-section">
+            <h2>Performance Summary</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Coin</th>
+                        <th>Weekly Performance</th>
+                        <th>Notable Drivers</th>
+                        <th>Trend</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>SHIB</td>
+                        <td>+130%</td>
+                        <td>Altseason inflow, memecoin resurgence</td>
+                        <td>Strong Bullish</td>
+                    </tr>
+                    <tr>
+                        <td>WIF</td>
+                        <td>+100%+</td>
+                        <td>Social hype, Solana ecosystem momentum</td>
+                        <td>Bullish</td>
+                    </tr>
+                    <tr>
+                        <td>PEPE</td>
+                        <td>+100%+</td>
+                        <td>Community-driven, high volatility</td>
+                        <td>Bullish</td>
+                    </tr>
+                    <tr>
+                        <td>BONK</td>
+                        <td>+100%+</td>
+                        <td>Solana memecoin pump, influencer backing</td>
+                        <td>Bullish</td>
+                    </tr>
+                    <tr>
+                        <td>BTC</td>
+                        <td>+5%</td>
+                        <td>Institutional inflows, supply shock warnings</td>
+                        <td>Bullish</td>
+                    </tr>
+                    <tr>
+                        <td>ETH</td>
+                        <td>+29%</td>
+                        <td>Technical improvements, $10K price predictions</td>
+                        <td>Bullish</td>
+                    </tr>
+                    <tr>
+                        <td>XRP</td>
+                        <td>+8%</td>
+                        <td>Whale flow patterns similar to previous 400% rally</td>
+                        <td>Bullish</td>
+                    </tr>
+                    <tr>
+                        <td>SOL</td>
+                        <td>+15%</td>
+                        <td>Ecosystem growth, meta chain proposal</td>
+                        <td>Bullish</td>
+                    </tr>
+                    <tr>
+                        <td>DOGE</td>
+                        <td>Not updated weekly</td>
+                        <td>Historical cycle leader, BTC correlation</td>
+                        <td>Warming Up</td>
+                    </tr>
+                    <tr>
+                        <td>TAU</td>
+                        <td>Unreported</td>
+                        <td>No major catalyst or listing activity</td>
+                        <td>Neutral to Weak</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+        
+        <section class="news-section">
+            <h2>Recent News Highlights</h2>
+            
+            <div class="news-item">
+                <h3 class="news-title">Bitcoin remains unmatched as a global inflation hedge</h3>
+                <p class="news-source">Source: CoinTelegraph</p>
+            </div>
+            
+            <div class="news-item">
+                <h3 class="news-title">$1B Bitcoin exits Coinbase in a day as analysts warn of supply shock</h3>
+                <p class="news-source">Source: CoinTelegraph</p>
+            </div>
+            
+            <div class="news-item">
+                <h3 class="news-title">Ethereum to $10K 'can't be ruled out' as ETH price makes sharp gains vs. SOL, XRP</h3>
+                <p class="news-source">Source: CoinTelegraph</p>
+            </div>
+            
+            <div class="news-item">
+                <h3 class="news-title">History rhymes? XRP price gained 400% the last time whale flows flipped</h3>
+                <p class="news-source">Source: CoinTelegraph</p>
+            </div>
+            
+            <div class="news-item">
+                <h3 class="news-title">Solana co-founder proposes meta chain to fix blockchain fragmentation</h3>
+                <p class="news-source">Source: CoinTelegraph</p>
+            </div>
+        </section>
+        
+        <footer>
+            <p>Data compiled from various sources including CoinTelegraph, market analysis, and trading data.</p>
+            <p>Generated on May 14, 2025</p>
+        </footer>
+    </div>
+</body>
+</html>

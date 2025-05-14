@@ -1,76 +1,37 @@
-# Trading Information Scraper Configuration
-
-# Data Sources Configuration
+logging:
+  file: ./logs/app.log
+  level: INFO
+scheduling:
+  frequency: once
+  time: 09:00
 sources:
+  cnbc:
+    categories:
+    - markets
+    - business
+    - investing
+    enabled: true
+    max_articles: 50
+  cointelegraph:
+    cryptocurrencies:
+    - BTC
+    - ETH
+    - XRP
+    - ADA
+    enabled: true
+    include_news: true
   yahoo_finance:
+    data_points:
+    - price
+    - volume
+    - market_cap
+    - pe_ratio
     enabled: true
     symbols:
-      - AAPL  # Apple
-      - MSFT  # Microsoft
-      - GOOGL # Alphabet (Google)
-      - AMZN  # Amazon
-      - META  # Meta (Facebook)
-      - TSLA  # Tesla
-      - NVDA  # NVIDIA
-      - JPM   # JPMorgan Chase
-    data_points:
-      - price
-      - change
-      - change_percent
-      - volume
-      - market_cap
-      - pe_ratio
-      - dividend_yield
-  
-  cnbc:
-    enabled: true
-    categories:
-      - markets
-      - business
-      - investing
-      - technology
-    max_articles: 50
-  
-  cointelegraph:
-    enabled: true
-    cryptocurrencies:
-      - BTC  # Bitcoin
-      - ETH  # Ethereum
-      - XRP  # Ripple
-      - ADA  # Cardano
-      - SOL  # Solana
-      - DOT  # Polkadot
-      - DOGE # Dogecoin
-    include_news: true
-
-# Storage Configuration
+    - AAPL
+    - MSFT
+    - GOOGL
+    - AMZN
 storage:
-  type: csv  # Options: csv, sqlite, json
   path: ./data
-
-# Scheduling Configuration
-scheduling:
-  frequency: once  # Options: once, hourly, daily
-  time: '09:00'  # For daily frequency, time in 24-hour format
-
-# Logging Configuration
-logging:
-  level: INFO  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
-  file: ./logs/app.log
-  console: true
-  loggers:
-    scrapers:
-      level: INFO
-      file: ./logs/scrapers.log
-    processors:
-      level: INFO
-      file: ./logs/processors.log
-    storage:
-      level: INFO
-      file: ./logs/storage.log
-
-# Visualization Configuration
-visualization:
-  output_dir: ./visualizations
-  default_format: png  # Options: png, jpg, svg, pdf
-  dpi: 300
+  type: csv
