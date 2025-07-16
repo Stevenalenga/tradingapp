@@ -1,6 +1,0 @@
-@echo off
-echo Updating cryptocurrency analysis...
-python update_crypto_analysis.py
-echo Opening analysis in browser...
-start index.html
-echo Done!
