@@ -1,0 +1,5 @@
+symbol,timestamp,price,change,change_percent,volume,market_cap,pe_ratio,dividend_yield
+AAPL,2025-07-16T12:10:53.400355,6279.5,,,,,,
+MSFT,2025-07-16T12:10:56.126260,6279.25,,,,,,
+GOOGL,2025-07-16T12:10:58.703011,6279.25,,,,,,
+AMZN,2025-07-16T12:11:01.176369,6279.25,,,,,,
