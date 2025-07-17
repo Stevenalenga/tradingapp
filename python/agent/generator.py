@@ -1,53 +1,64 @@
 import pandas as pd
-from datetime import datetime
 import numpy as np
+from datetime import timedelta
+from sklearn.linear_model import LinearRegression
 
-# Sample thresholds per asset (can be made dynamic later)
-RISK_PARAMS = {
-    "BTC": {"sl_pct": 0.05, "tp_pct": 0.08},
-    "SOL": {"sl_pct": 0.06, "tp_pct": 0.10},
-    "WIF": {"sl_pct": 0.12, "tp_pct": 0.25},
-    "XRP": {"sl_pct": 0.07, "tp_pct": 0.15},
-    "BONK": {"sl_pct": 0.15, "tp_pct": 0.30},
-    "BNB": {"sl_pct": 0.04, "tp_pct": 0.06}
-}
+class TradingSignalGenerator:
+    def __init__(self, data: pd.DataFrame):
+        """
+        Expected DataFrame columns:
+        - 'date' (datetime)
+        - 'coin' (e.g. BTC, ETH)
+        - 'price'
+        """
+        self.data = data
 
-def generate_trade_signals(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Given a DataFrame with columns ['symbol', 'timestamp', 'price', 'forecast'],
-    returns a DataFrame with stop-loss and take-profit recommendations.
-    """
-    results = []
-    for symbol in df['symbol'].unique():
-        asset_df = df[df['symbol'] == symbol].copy()
-        asset_df.sort_values(by="timestamp", inplace=True)
+    def forecast_prices(self, coin: str, days_ahead: int = 3):
+        df = self.data[self.data['coin'] == coin].copy()
+        df = df.sort_values(by='date')
 
-        latest = asset_df.iloc[-1]
-        price = latest["price"]
-        forecast = latest.get("forecast", price)  # default to price if no forecast
-        params = RISK_PARAMS.get(symbol.upper(), {"sl_pct": 0.05, "tp_pct": 0.10})
+        df['day_index'] = np.arange(len(df))
+        X = df[['day_index']]
+        y = df['price']
 
-        stop_loss = round(price * (1 - params["sl_pct"]), 4)
-        take_profit = round(price * (1 + params["tp_pct"]), 4)
+        model = LinearRegression()
+        model.fit(X, y)
 
-        trend = "Bullish" if forecast > price else "Bearish"
+        future_days = np.arange(len(df), len(df) + days_ahead).reshape(-1, 1)
+        future_prices = model.predict(future_days)
 
-        results.append({
-            "symbol": symbol,
-            "price": price,
-            "forecast": forecast,
-            "trend": trend,
-            "stop_loss": stop_loss,
-            "take_profit": take_profit,
-            "timestamp": datetime.utcnow().isoformat()
+        return pd.DataFrame({
+            'date': [df['date'].max() + timedelta(days=i+1) for i in range(days_ahead)],
+            'coin': coin,
+            'forecast_price': future_prices
         })
 
-    return pd.DataFrame(results)
+    def generate_signals(self, coin: str, threshold_pct: float = 5.0):
+        df = self.data[self.data['coin'] == coin].copy()
+        if df.empty:
+            return None
 
+        current_price = df.sort_values('date').iloc[-1]['price']
+        forecast = self.forecast_prices(coin, days_ahead=3)
+        max_forecast = forecast['forecast_price'].max()
+        min_forecast = forecast['forecast_price'].min()
 
-if __name__ == "__main__":
-    # Example usage (load historical/scraped data)
-    df = pd.read_csv("data/latest_prices.csv")  # Contains columns: symbol, timestamp, price, forecast
-    signals = generate_trade_signals(df)
-    signals.to_json("outputs/signals.json", orient="records", indent=2)
-    print(signals)
+        take_profit = current_price + (threshold_pct / 100) * current_price
+        stop_loss = current_price - (threshold_pct / 100) * current_price
+
+        return {
+            'coin': coin,
+            'current_price': current_price,
+            'forecast': forecast.to_dict(orient='records'),
+            'take_profit': round(take_profit, 3),
+            'stop_loss': round(stop_loss, 3)
+        }
+
+    def generate_all_signals(self):
+        coins = self.data['coin'].unique()
+        signals = []
+        for coin in coins:
+            signal = self.generate_signals(coin)
+            if signal:
+                signals.append(signal)
+        return signals
