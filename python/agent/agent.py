@@ -328,12 +328,67 @@ class TradingAgent:
                 payload["notes"].append("No visualization found in ./python/visualization")
 
             # Construct prompt for LLM
-            instruction = (
+            # Build a domain-specific instruction tailored to the detected source in filename
+            src_hint = ""
+            try:
+                base = (os.path.basename(dpath or "") + os.path.basename(vpath or "")).lower()
+                if "alternative_me" in base or "fear_greed" in base:
+                    src_hint = "FGI"
+                elif "coinmarketcap" in base or "cmc" in base:
+                    src_hint = "CMC"
+                elif "coingecko" in base:
+                    src_hint = "COINGECKO"
+                elif "coindesk" in base:
+                    src_hint = "COINDESK"
+                elif "cointelegraph" in base:
+                    src_hint = "COINTELEGRAPH"
+                elif "yahoo" in base or "stocks" in base:
+                    src_hint = "STOCKS"
+                elif "news" in base or "cnbc" in base:
+                    src_hint = "CNBC"
+            except Exception:
+                src_hint = ""
+            
+            instruction_common = (
                 "You are a data analyst. Given a dataset preview and a visualization summary, "
-                "produce a concise, actionable analysis of the scraped data. "
-                "Include: 1) Notable trends, 2) Outliers or anomalies, 3) Suggested follow-up visualizations, "
+                "produce a concise, actionable analysis of the scraped data."
+            )
+            instruction_suffix = (
+                " Include: 1) Notable trends, 2) Outliers or anomalies, 3) Suggested follow-up visualizations, "
                 "4) Trading-relevant insights. Keep it under 250 words."
             )
+            # Source-specific augmentation
+            instruction_map = {
+                "FGI": (
+                    " Focus on Fear & Greed Index (FGI): compute or infer 30-day average and rolling volatility if visible; "
+                    "comment on regime (Greed/Extreme Greed/Neutral/Fear) transitions, and provide contrarian takeaways."
+                    " Suggest time-series with moving average, histogram/distribution, rolling volatility, and overlay vs BTC returns."
+                ),
+                "CMC": (
+                    " Focus on total market cap, BTC dominance, and global crypto metrics. "
+                    "If fields are strings, note parsing issues. Recommend time-series for market cap and dominance, "
+                    "stacked dominance charts, and breadth indicators once coin-level data is available."
+                ),
+                "COINGECKO": (
+                    " Emphasize 24h and 7d changes across major coins, dominance, and drawdowns from ATH. "
+                    "Suggest dominance vs total market cap, 24h vs 7d scatter with volume bubbles, and heatmaps."
+                ),
+                "COINDESK": (
+                    " Treat as news coverage diagnostics. If empty, analyze coverage gaps and propose scrape monitoring, "
+                    "article count time-series, and cross-source redundancy."
+                ),
+                "COINTELEGRAPH": (
+                    " Treat as topic/news and coin metrics blend. Deduplicate headlines, tag by asset, and propose sentiment-by-asset visuals."
+                ),
+                "STOCKS": (
+                    " Focus on equities sanity checks, missingness heatmaps, and price/time plots; highlight anomalies like identical prices."
+                ),
+                "CNBC": (
+                    " Treat as news categories coverage; propose counts by category/time and failure detection dashboards."
+                ),
+                "": ""
+            }
+            instruction = instruction_common + instruction_map.get(src_hint, "") + instruction_suffix
             user_content = json.dumps(payload, indent=2)
 
             model_name = model or self.config.get(self.agent_cfg.model_path) or self.agent_cfg.default_model
@@ -363,8 +418,31 @@ class TradingAgent:
         out_name = f"agent_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         out_path = os.path.join(self.agent_cfg.data_dir, out_name)
         os.makedirs(self.agent_cfg.data_dir, exist_ok=True)
+        # Also include a brief high-level executive summary if multiple reports
+        bundle = {"reports": reports}
+        if len(reports) > 1:
+            try:
+                summary_points = []
+                for r in reports:
+                    art = r.get("artifacts", {})
+                    src_name = os.path.basename((art.get("data") or "unknown")).lower()
+                    if "alternative_me" in src_name or "fear_greed" in src_name:
+                        summary_points.append("Fear & Greed: use moving averages, rolling volatility, and BTC overlay to contextualize pullbacks.")
+                    if "coingecko" in src_name:
+                        summary_points.append("Coingecko: dominance rising with cap falling → overweight BTC; scan outliers for relative strength.")
+                    if "coinmarketcap" in src_name:
+                        summary_points.append("CMC: parse numeric fields; time-series of total cap and BTC dominance recommended.")
+                    if "coindesk" in src_name:
+                        summary_points.append("CoinDesk: empty scrape; add monitoring and cross-source redundancy.")
+                    if "news" in src_name or "cnbc" in src_name:
+                        summary_points.append("CNBC: zero counts; validate parser and add coverage timelines.")
+                    if "stocks" in src_name:
+                        summary_points.append("Stocks: identical prices anomaly; add data-quality checks and fail-fast rules.")
+                bundle["executive_summary"] = list(dict.fromkeys(summary_points))[:6]
+            except Exception:
+                pass
         with open(out_path, "w", encoding="utf-8") as f:
-            json.dump({"reports": reports}, f, indent=2)
+            json.dump(bundle, f, indent=2)
         self.logger.info(f"Wrote analysis bundle to {out_path}")
 
         # For console output, if single report return its shape, otherwise summarize
@@ -469,7 +547,9 @@ def parse_args():
     parser.add_argument("--analyze-all", action="store_true", help="Analyze all available artifacts found in ./python/data and ./python/visualization")
     parser.add_argument("--data-path", type=str, help="Optional explicit path to data file for analysis (csv/json)")
     parser.add_argument("--viz-path", type=str, help="Optional explicit path to visualization file for analysis (png/jpg/svg/pdf/html)")
-    parser.add_argument("--model", type=str, help="Override LLM model for this analysis call")
+    # Model controls
+    parser.add_argument("--model", type=str, help="Override LLM model for this analysis call (default: from config llm.openrouter.model or 'openrouter/auto')")
+    parser.add_argument("--set-model", type=str, help="Persistently set default LLM model in config under llm.openrouter.model (e.g., openrouter/auto, openrouter/anthropic/claude-3.5-sonnet, openrouter/openai/gpt-4o)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose pipeline logs for main run")
     return parser.parse_args()
 
@@ -481,6 +561,15 @@ def main():
     # Update API key if provided
     if args.update_key:
         agent.update_api_key(args.update_key)
+
+    # Persist model if requested
+    if getattr(args, "set_model", None):
+        agent.config.set(agent.agent_cfg.model_path, args.set_model)
+        if not agent.config.save_config():
+            print(f"Failed to persist model '{args.set_model}' to config")
+            sys.exit(2)
+        else:
+            print(f"Default model updated to '{args.set_model}' in config")
 
     # If --analyze is provided without --run-main, treat it as analyze-only.
     if args.analyze and not args.run_main:
