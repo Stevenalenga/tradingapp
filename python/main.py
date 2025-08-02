@@ -1,4 +1,7 @@
 
+import matplotlib
+matplotlib.use("Agg")
+
 import argparse
 import logging
 import os
@@ -17,7 +20,6 @@ from scrapers.coindesk import CoinDeskScraper
 from scrapers.coingecko import CoinGeckoScraper
 from scrapers.cryptoslate import CryptoSlateScraper
 from scrapers.coinmarketcap import CoinMarketCapScraper
-from scrapers.cryptopanic import CryptoPanicScraper
 from scrapers.alternative_me import AlternativeMeScraper
 from scheduler import Scheduler
 from storage.csv_storage import CSVStorage
@@ -43,12 +45,12 @@ class TradingApp:
             config_path: Path to the configuration file
         """
         # Set up configuration
-        self.config = Config(config_path)
-        
-        # If no configuration file was provided or found, create a default one
-        if not self.config.config:
-            default_config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
-            self.config.create_default_config(default_config_path)
+        self.config = Config(config_path or os.path.join(os.path.dirname(__file__), 'config.yaml'))
+
+        # Enforce YAML-only configuration and do not synthesize defaults
+        # Abort early if config is empty to avoid using any fallback settings.
+        if not isinstance(self.config.get_all(), dict) or not self.config.get_all():
+            raise RuntimeError("Configuration missing or invalid. Provide a valid YAML at python/config.yaml or via --config.")
         
         # Set up logging
         log_level = self.config.get('logging.level', 'INFO')
@@ -84,10 +86,6 @@ class TradingApp:
         
         if self.config.get('sources.coinmarketcap.enabled', False):
             self.scrapers['coinmarketcap'] = CoinMarketCapScraper()
-        
-        if self.config.get('sources.cryptopanic.enabled', False):
-            api_key = self.config.get('sources.cryptopanic.api_key')
-            self.scrapers['cryptopanic'] = CryptoPanicScraper(api_key=api_key)
         
         if self.config.get('sources.alternative_me.enabled', False):
             self.scrapers['alternative_me'] = AlternativeMeScraper()
@@ -129,9 +127,10 @@ class TradingApp:
             
             # Determine which sources to scrape
             if not sources:
-                sources = list(self.scrapers.keys())
+                # Strictly derive sources from YAML enablement, not from code defaults
+                sources = [name for name, scraper in self.scrapers.items()]
             else:
-                # Filter out sources that are not available
+                # Filter out sources that are not available (only those enabled/instantiated from YAML)
                 sources = [s for s in sources if s in self.scrapers]
             
             if not sources:
@@ -191,53 +190,47 @@ class TradingApp:
             for source in sources:
                 try:
                     if source == 'yahoo_finance':
-                        symbols = self.config.get('sources.yahoo_finance.symbols', ['AAPL', 'MSFT', 'GOOGL', 'AMZN'])
+                        symbols = self.config.get('sources.yahoo_finance.symbols')
                         data_points = self.config.get('sources.yahoo_finance.data_points')
                         scraped_data[source] = self.scrapers[source].scrape(symbols, data_points)
                     
                     elif source == 'cnbc':
-                        categories = self.config.get('sources.cnbc.categories', ['markets', 'business', 'investing'])
-                        max_articles = self.config.get('sources.cnbc.max_articles', 50)
-                        scraped_data[source] = self.scrapers[source].scrape(categories, max_articles)
+                        categories = self.config.get('sources.cnbc.categories')
+                        max_articles = self.config.get('sources.cnbc.max_articles')
+                        tags = self.config.get('sources.cnbc.tags')
+                        scraped_data[source] = self.scrapers[source].scrape(categories, max_articles, tags)
                     
                     elif source == 'cointelegraph':
-                        cryptocurrencies = self.config.get('sources.cointelegraph.cryptocurrencies', ['BTC', 'ETH', 'XRP', 'ADA'])
-                        include_news = self.config.get('sources.cointelegraph.include_news', True)
+                        cryptocurrencies = self.config.get('sources.cointelegraph.cryptocurrencies')
+                        include_news = self.config.get('sources.cointelegraph.include_news')
                         scraped_data[source] = self.scrapers[source].scrape(cryptocurrencies, include_news)
                     
                     elif source == 'coindesk':
-                        cryptocurrencies = self.config.get('sources.coindesk.cryptocurrencies', ['BTC'])
-                        include_news = self.config.get('sources.coindesk.include_news', True)
-                        max_articles = self.config.get('sources.coindesk.max_articles', 20)
+                        cryptocurrencies = self.config.get('sources.coindesk.cryptocurrencies')
+                        include_news = self.config.get('sources.coindesk.include_news')
+                        max_articles = self.config.get('sources.coindesk.max_articles')
                         scraped_data[source] = self.scrapers[source].scrape(cryptocurrencies, include_news, max_articles)
                     
                     elif source == 'coingecko':
-                        cryptocurrencies = self.config.get('sources.coingecko.cryptocurrencies', ['BTC', 'ETH', 'XRP', 'ADA'])
-                        include_market_data = self.config.get('sources.coingecko.include_market_data', True)
-                        include_trending = self.config.get('sources.coingecko.include_trending', False)
+                        cryptocurrencies = self.config.get('sources.coingecko.cryptocurrencies')
+                        include_market_data = self.config.get('sources.coingecko.include_market_data')
+                        include_trending = self.config.get('sources.coingecko.include_trending')
                         scraped_data[source] = self.scrapers[source].scrape(cryptocurrencies, include_market_data, include_trending)
                     
                     elif source == 'cryptoslate':
-                        include_news = self.config.get('sources.cryptoslate.include_news', True)
-                        include_market_data = self.config.get('sources.cryptoslate.include_market_data', True)
-                        max_articles = self.config.get('sources.cryptoslate.max_articles', 30)
+                        include_news = self.config.get('sources.cryptoslate.include_news')
+                        include_market_data = self.config.get('sources.cryptoslate.include_market_data')
+                        max_articles = self.config.get('sources.cryptoslate.max_articles')
                         scraped_data[source] = self.scrapers[source].scrape(include_news, include_market_data, max_articles)
                     
                     elif source == 'coinmarketcap':
                         cryptocurrencies = self.config.get('sources.coinmarketcap.cryptocurrencies')
-                        max_coins = self.config.get('sources.coinmarketcap.max_coins', 100)
+                        max_coins = self.config.get('sources.coinmarketcap.max_coins')
                         scraped_data[source] = self.scrapers[source].scrape(cryptocurrencies, max_coins)
                     
-                    elif source == 'cryptopanic':
-                        cryptocurrencies = self.config.get('sources.cryptopanic.cryptocurrencies')
-                        kind = self.config.get('sources.cryptopanic.kind', 'news')
-                        filter_sentiment = self.config.get('sources.cryptopanic.filter_sentiment')
-                        max_posts = self.config.get('sources.cryptopanic.max_posts', 50)
-                        scraped_data[source] = self.scrapers[source].scrape(cryptocurrencies, kind, filter_sentiment, max_posts)
-                    
                     elif source == 'alternative_me':
-                        days = self.config.get('sources.alternative_me.days', 30)
-                        include_historical = self.config.get('sources.alternative_me.include_historical', True)
+                        days = self.config.get('sources.alternative_me.days')
+                        include_historical = self.config.get('sources.alternative_me.include_historical')
                         scraped_data[source] = self.scrapers[source].scrape(days, include_historical)
                     
                     self.logger.info(f"Successfully scraped data from {source}")
@@ -336,7 +329,7 @@ class TradingApp:
                                     )
                                     self.visualizer.save_plot(fig, f"crypto_change_{timestamp}.png")
                 
-                    elif source in ['coindesk', 'coingecko', 'cryptoslate', 'coinmarketcap', 'cryptopanic', 'alternative_me']:
+                    elif source in ['coindesk', 'coingecko', 'cryptoslate', 'coinmarketcap', 'alternative_me']:
                         # Handle new cryptocurrency data sources
                         filename = f"{source}_{timestamp}"
                         filepath = self.storage.store(data, filename)
@@ -392,6 +385,8 @@ class TradingApp:
                                 classification = fg_data['current'].get('value_classification', '')
                                 
                                 # Create a simple visualization for Fear & Greed Index
+                                import matplotlib
+                                matplotlib.use("Agg")
                                 import matplotlib.pyplot as plt
                                 fig, ax = plt.subplots(figsize=(8, 6))
                                 
@@ -404,7 +399,7 @@ class TradingApp:
                                 
                                 # Add current value indicator
                                 angle = 180 - (current_value / 100) * 180
-                                ax.annotate('', xy=(0.7 * np.cos(np.radians(angle)), 0.7 * np.sin(np.radians(angle))), 
+                                ax.annotate('', xy=(0.7 * np.cos(np.radians(angle)), 0.7 * np.sin(np.radians(angle))),
                                           xytext=(0, 0), arrowprops=dict(arrowstyle='->', lw=3, color='black'))
                                 
                                 ax.set_title(f'Fear & Greed Index: {current_value} ({classification})', fontsize=14, fontweight='bold')

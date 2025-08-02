@@ -34,9 +34,20 @@ class Config:
         
         if config_path:
             self.load_config(config_path)
-        
+
         # Load environment variables
         self._load_env_vars()
+
+        # After loading file + env, resolve llm.openrouter.api_key from OPENROUTER_API_KEY if present
+        try:
+            env_key = os.environ.get("OPENROUTER_API_KEY")
+            if env_key:
+                # Ensure nested structure exists and set key (kept in-memory; do not persist automatically)
+                if hasattr(self, "ensure_path"):
+                    self.ensure_path("llm.openrouter.api_key")
+                self.set("llm.openrouter.api_key", env_key)
+        except Exception as e:
+            logger.error(f"Error resolving OPENROUTER_API_KEY from environment: {e}")
     
     def load_config(self, config_path: str) -> bool:
         """
@@ -73,7 +84,43 @@ class Config:
         except Exception as e:
             logger.error(f"Error loading configuration from {config_path}: {e}")
             return False
-    
+
+    def ensure_path(self, key: str) -> None:
+        """
+        Ensure that a nested path (dot notation) exists in self.config as dictionaries.
+
+        Args:
+            key: Configuration key in dot notation, e.g., 'llm.openrouter.api_key'
+        """
+        try:
+            if not key:
+                return
+            parts = key.split(".")
+            cfg = self.config
+            for part in parts[:-1]:
+                if part not in cfg or not isinstance(cfg.get(part), dict):
+                    cfg[part] = {}
+                cfg = cfg[part]
+        except Exception as e:
+            logger.error(f"Error ensuring configuration path for {key}: {e}")
+
+    def get_path(self, key: str, default: Any = None) -> Any:
+        """
+        Alias of get() kept for clarity with nested keys use-cases.
+        """
+        return self.get(key, default)
+
+    def set_path(self, key: str, value: Any) -> None:
+        """
+        Ensure path and set a nested configuration value using dot notation.
+
+        Args:
+            key: Configuration key in dot notation
+            value: Value to set
+        """
+        self.ensure_path(key)
+        self.set(key, value)
+
     def save_config(self, config_path: Optional[str] = None) -> bool:
         """
         Save configuration to a file.
@@ -96,13 +143,14 @@ class Config:
                 
             # Determine file type based on extension
             _, ext = os.path.splitext(config_path)
-            
+
+            # Always write YAML safely preserving readability
             if ext.lower() in ['.yaml', '.yml']:
-                with open(config_path, 'w') as f:
-                    yaml.dump(self.config, f, default_flow_style=False)
+                with open(config_path, 'w', encoding='utf-8') as f:
+                    yaml.safe_dump(self.config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
             elif ext.lower() == '.json':
-                with open(config_path, 'w') as f:
-                    json.dump(self.config, f, indent=2)
+                with open(config_path, 'w', encoding='utf-8') as f:
+                    json.dump(self.config, f, indent=2, ensure_ascii=False)
             else:
                 logger.warning(f"Unsupported configuration file format: {ext}")
                 return False
@@ -213,32 +261,44 @@ class Config:
     def _load_env_vars(self) -> None:
         """Load configuration from environment variables."""
         try:
-            # Look for environment variables with the TRADINGAPP_ prefix
+            # Load TRADINGAPP_ prefixed vars into nested config
             prefix = 'TRADINGAPP_'
-            
             for key, value in os.environ.items():
                 if key.startswith(prefix):
-                    # Remove the prefix and convert to lowercase
                     config_key = key[len(prefix):].lower()
-                    
-                    # Handle nested keys with underscore notation
                     if '_' in config_key:
                         parts = config_key.split('_')
                         config = self.config
-                        
-                        # Navigate to the nested dictionary
                         for part in parts[:-1]:
-                            if part not in config:
+                            if part not in config or not isinstance(config[part], dict):
                                 config[part] = {}
-                            elif not isinstance(config[part], dict):
-                                config[part] = {}
-                                
                             config = config[part]
-                            
-                        # Set the value in the nested dictionary
                         config[parts[-1]] = self._parse_env_value(value)
                     else:
                         self.config[config_key] = self._parse_env_value(value)
+
+            # Explicitly load .env file if present at project root to populate environment
+            # This is a light inline loader to avoid extra dependencies.
+            env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+            env_path = os.path.abspath(env_path)
+            if os.path.exists(env_path):
+                try:
+                    with open(env_path, "r", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line or line.startswith("#"):
+                                continue
+                            if "=" not in line:
+                                continue
+                            k, v = line.split("=", 1)
+                            k = k.strip()
+                            v = v.strip().strip('"').strip("'")
+                            # Do not overwrite existing environment variables
+                            if k and k not in os.environ:
+                                os.environ[k] = v
+                except Exception as env_e:
+                    logger.warning(f"Could not parse .env file at {env_path}: {env_e}")
+
         except Exception as e:
             logger.error(f"Error loading environment variables: {e}")
     

@@ -1,37 +1,111 @@
 logging:
   file: ./logs/app.log
   level: INFO
+
 scheduling:
   frequency: once
   time: 09:00
+
+# Agent configuration placeholders
+llm:
+  openrouter:
+    # API key resolution order:
+    # 1) Environment variable OPENROUTER_API_KEY (recommended; populate via .env)
+    # 2) Value persisted here if set by the agent CLI (--update-key)
+    # If both exist, environment variable takes precedence at runtime.
+    api_key: "${OPENROUTER_API_KEY:REPLACE_WITH_OPENROUTER_API_KEY}"
+    # Default model used by the agent when calling OpenRouter (can be overridden with --model)
+    model: "openrouter/auto"
+
+agent:
+  # Directories for artifact discovery; adjust if your layout changes.
+  data_dir: "./data"
+  visualization_dir: "./visualization"
+  # Analysis settings
+  analysis:
+    max_rows_preview: 20
+    temperature: 0.2
+    max_tokens: 600
+
 sources:
-  cnbc:
-    categories:
-    - markets
-    - business
-    - investing
-    enabled: true
-    max_articles: 50
-  cointelegraph:
-    cryptocurrencies:
-    - BTC
-    - ETH
-    - XRP
-    - ADA
-    enabled: true
-    include_news: true
   yahoo_finance:
-    data_points:
-    - price
-    - volume
-    - market_cap
-    - pe_ratio
     enabled: true
     symbols:
-    - AAPL
-    - MSFT
-    - GOOGL
-    - AMZN
-storage:
-  path: ./data
-  type: csv
+      - AAPL
+      - MSFT
+      - GOOGL
+      - AMZN
+    data_points:
+      - price
+      - volume
+      - market_cap
+      - pe_ratio
+  cnbc:
+    enabled: true
+    categories:
+      - markets
+      - business
+      - investing
+    tags:
+      - crypto
+      - bitcoin
+      - ethereum
+    max_articles: 50
+  cointelegraph:
+    enabled: true
+    include_news: true
+    urls:
+      - https://cointelegraph.com/tags/altcoin
+      - https://cointelegraph.com/category/latest-news
+      - https://cointelegraph.com/tags/bitcoin
+      - https://cointelegraph.com/markets
+      - https://cointelegraph.com/tags/ethereum
+      - https://cointelegraph.com/tags/blockchain
+      - https://cointelegraph.com/tags/regulation
+    cryptocurrencies:
+      - BTC
+      - ETH
+      - XRP
+      - ADA
+      - BNB
+      - LTC
+      - LINK
+  coindesk:
+    enabled: true
+    cryptocurrencies:
+      - BTC
+      - BNB
+      - LTC
+      - LINK
+    include_news: true
+    max_articles: 20
+  coingecko:
+    enabled: true
+    cryptocurrencies:
+      - BTC
+      - ETH
+      - XRP
+      - ADA
+      - BNB
+      - LTC
+      - LINK
+    include_market_data: true
+    include_trending: false
+  coinmarketcap:
+    enabled: true
+    cryptocurrencies:
+      - BTC
+      - ETH
+      - XRP
+      - ADA
+      - BNB
+      - LTC
+      - LINK
+    max_coins: 100
+  alternative_me:
+    enabled: true
+    days: 30
+    include_historical: true
+  storage:
+    path: ./data
+    type: csv

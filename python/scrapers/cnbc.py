@@ -27,28 +27,32 @@ class CNBCScraper(BaseScraper):
     MARKETS_URL = BASE_URL + "/markets"
     NEWS_URL = BASE_URL + "/latest-news"
     CATEGORY_URL = BASE_URL + "/{category}"
+    TAG_URL = BASE_URL + "/tag/{tag}"
     
     def __init__(self, **kwargs):
         """Initialize the CNBC scraper with base scraper parameters."""
         super().__init__(**kwargs)
     
-    def scrape(self, categories: Optional[List[str]] = None, max_articles: int = 50) -> Dict:
+    def scrape(self, categories: Optional[List[str]] = None, max_articles: int = 50, tags: Optional[List[str]] = None) -> Dict:
         """
         Scrape news articles from CNBC.
         
         Args:
             categories: List of categories to scrape (default: ['markets', 'investing'])
             max_articles: Maximum number of articles to scrape
+            tags: Optional list of tag slugs to scrape (e.g., ['crypto', 'bitcoin'])
             
         Returns:
             Dictionary with scraped news data
         """
         categories = categories or ['markets', 'investing']
+        tags = tags or []
         
         result = {
             "timestamp": datetime.now().isoformat(),
             "source": "CNBC",
-            "categories": {}
+            "categories": {},
+            "tags": {}
         }
         
         for category in categories:
@@ -58,6 +62,14 @@ class CNBCScraper(BaseScraper):
             except Exception as e:
                 logger.error(f"Error scraping category {category}: {e}")
                 result["categories"][category] = {"error": str(e)}
+        
+        for tag in tags:
+            try:
+                logger.info(f"Scraping news for tag: {tag}")
+                result["tags"][tag] = self.scrape_tag(tag, max_articles)
+            except Exception as e:
+                logger.error(f"Error scraping tag {tag}: {e}")
+                result["tags"][tag] = {"error": str(e)}
         
         return result
     
@@ -98,18 +110,55 @@ class CNBCScraper(BaseScraper):
             "articles": articles
         }
     
-    def scrape_news(self, categories: Optional[List[str]] = None, max_articles: int = 50) -> Dict:
+    def scrape_tag(self, tag: str, max_articles: int) -> Dict:
+        """
+        Scrape news articles for a specific CNBC tag.
+        
+        Args:
+            tag: Tag slug to scrape (e.g., 'crypto', 'bitcoin', 'ethereum')
+            max_articles: Maximum number of articles to scrape
+            
+        Returns:
+            Dictionary with scraped news data for the tag
+        """
+        url = self.TAG_URL.format(tag=tag.strip('/'))
+        soup = self.get_html(url)
+        
+        articles = []
+        article_count = 0
+        
+        # Look for article cards on tag pages
+        article_elements = soup.find_all(['div', 'article'], class_=re.compile('Card|FeaturedCard|LatestNews|River|Featured'))
+        
+        for article_element in article_elements:
+            if article_count >= max_articles:
+                break
+            try:
+                article_data = self._extract_article_data(article_element)
+                if article_data:
+                    articles.append(article_data)
+                    article_count += 1
+            except Exception as e:
+                logger.debug(f"Error extracting tag article data: {e}")
+        
+        return {
+            "total": len(articles),
+            "articles": articles
+        }
+    
+    def scrape_news(self, categories: Optional[List[str]] = None, max_articles: int = 50, tags: Optional[List[str]] = None) -> Dict:
         """
         Alias for scrape method to maintain API consistency.
         
         Args:
             categories: List of categories to scrape
             max_articles: Maximum number of articles to scrape
+            tags: Optional list of tag slugs to scrape
             
         Returns:
             Dictionary with scraped news data
         """
-        return self.scrape(categories, max_articles)
+        return self.scrape(categories, max_articles, tags)
     
     def scrape_market_data(self) -> Dict:
         """
@@ -142,8 +191,11 @@ class CNBCScraper(BaseScraper):
         Returns:
             Dictionary with article data or None if extraction fails
         """
-        # Find headline
-        headline_element = article_element.find(['h2', 'h3', 'a'], class_=re.compile('Card-title|Card-headline'))
+        # Find headline (wider selector set for various CNBC card types)
+        headline_element = (
+            article_element.find(['h2', 'h3', 'a'], class_=re.compile('Card-title|Card-headline|FeaturedCard|RiverHeadline|LatestNews'))
+            or article_element.find(['h2', 'h3'])
+        )
         if not headline_element:
             return None
             

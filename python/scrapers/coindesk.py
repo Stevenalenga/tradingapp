@@ -25,9 +25,10 @@ class CoinDeskScraper(BaseScraper):
     This class provides methods for scraping cryptocurrency data and news from CoinDesk.
     """
     
-    BASE_URL = "https://coindesk.com"
+    BASE_URL = "https://www.coindesk.com"
     API_URL = "https://api.coindesk.com/v1/bpi/currentprice.json"
-    NEWS_URL = BASE_URL + "/news"
+    # News content is surfaced on the homepage; scrape anchors linking to /news/* from home.
+    NEWS_URL = BASE_URL + "/"
     MARKET_DATA_URL = BASE_URL + "/coindesk20"
     
     def __init__(self, **kwargs):
@@ -146,61 +147,71 @@ class CoinDeskScraper(BaseScraper):
         """
         try:
             soup = self.get_html(self.NEWS_URL)
-            
+
             articles = []
-            article_elements = soup.find_all('article', limit=max_articles)
-            
-            for article in article_elements:
-                try:
-                    # Extract article title
-                    title_elem = article.find(['h1', 'h2', 'h3', 'h4'], class_=re.compile(r'.*title.*|.*headline.*'))
-                    if not title_elem:
-                        title_elem = article.find(['h1', 'h2', 'h3', 'h4'])
-                    
-                    title = title_elem.get_text(strip=True) if title_elem else "No title"
-                    
-                    # Extract article link
-                    link_elem = title_elem.find('a') if title_elem else article.find('a')
-                    link = ""
-                    if link_elem and link_elem.get('href'):
-                        href = link_elem.get('href')
-                        link = href if href.startswith('http') else self.BASE_URL + href
-                    
-                    # Extract publication date
-                    date_elem = article.find('time')
-                    if not date_elem:
-                        date_elem = article.find(class_=re.compile(r'.*date.*|.*time.*'))
-                    
-                    date = ""
-                    if date_elem:
-                        date = date_elem.get('datetime') or date_elem.get_text(strip=True)
-                    
-                    # Extract summary
-                    summary_elem = article.find(['p'], class_=re.compile(r'.*summary.*|.*excerpt.*|.*description.*'))
-                    if not summary_elem:
-                        summary_elem = article.find('p')
-                    
-                    summary = summary_elem.get_text(strip=True) if summary_elem else ""
-                    
-                    if title and title != "No title":
-                        articles.append({
-                            "title": title,
-                            "link": link,
-                            "date": date,
-                            "summary": summary,
-                            "source": "CoinDesk"
-                        })
-                
-                except Exception as e:
-                    logger.warning(f"Error parsing article: {e}")
+            # On homepage, select anchors that clearly point to news articles
+            link_nodes = soup.select('a[href*="/news/"]')
+            seen_links = set()
+            for a in link_nodes:
+                href = a.get('href') or ''
+                if not href:
                     continue
-            
+                if href.startswith('/'):
+                    full = self.BASE_URL + href
+                elif href.startswith('http'):
+                    full = href
+                else:
+                    continue
+
+                # Deduplicate and enforce domain + /news/
+                if '/news/' not in full or 'coindesk.com' not in full:
+                    continue
+                if full in seen_links:
+                    continue
+                seen_links.add(full)
+
+                # Title text: prefer nearby headings, fallback to anchor text
+                title = ''
+                # Try heading within the same card
+                heading = a.find(['h1','h2','h3','h4'])
+                if heading and heading.get_text(strip=True):
+                    title = heading.get_text(strip=True)
+                if not title and a.get_text(strip=True):
+                    title = a.get_text(strip=True)
+
+                # Heuristic: skip nav/menu or empty titles
+                if not title or len(title) < 5:
+                    continue
+
+                # Attempt to find a sibling/ancestor paragraph as summary
+                summary = ''
+                parent = a
+                hops = 0
+                while parent and hops < 3 and not summary:
+                    sib_p = parent.find_next('p')
+                    if sib_p and sib_p.get_text(strip=True):
+                        summary = sib_p.get_text(strip=True)
+                        break
+                    parent = parent.parent
+                    hops += 1
+
+                articles.append({
+                    "title": title,
+                    "link": full,
+                    "date": "",  # homepage cards often omit datetime; keep empty
+                    "summary": summary,
+                    "source": "CoinDesk"
+                })
+
+                if len(articles) >= max_articles:
+                    break
+
             return {
                 "articles": articles,
                 "total_count": len(articles),
                 "scraped_at": datetime.now().isoformat()
             }
-        
+
         except Exception as e:
             logger.error(f"Error scraping news from CoinDesk: {e}")
             return {"articles": [], "total_count": 0, "error": str(e)}

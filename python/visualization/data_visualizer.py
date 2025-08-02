@@ -257,14 +257,27 @@ class DataVisualizer:
             Matplotlib figure object
         """
         try:
+            # Coerce y column to numeric and drop NaNs to avoid type errors during plotting
+            safe = data.copy()
+            if y in safe.columns:
+                safe[y] = pd.to_numeric(safe[y], errors='coerce')
+                before = len(safe)
+                safe = safe.dropna(subset=[y])
+                dropped = before - len(safe)
+                if dropped > 0:
+                    logger.warning(f"plot_bar: dropped {dropped} rows with non-numeric or missing values in '{y}'")
+            else:
+                logger.error(f"plot_bar: column '{y}' not found in DataFrame")
+                return plt.figure()
+
             # Create figure and axis
             fig, ax = plt.subplots(figsize=figsize)
             
             # Plot the bar chart
             if horizontal:
-                ax.barh(data[x], data[y], color=color)
+                ax.barh(safe[x], safe[y], color=color)
             else:
-                ax.bar(data[x], data[y], color=color)
+                ax.bar(safe[x], safe[y], color=color)
             
             # Set title and labels
             if title:
@@ -273,7 +286,7 @@ class DataVisualizer:
             ax.set_ylabel(ylabel or y, fontsize=12)
             
             # Rotate x-axis labels for better readability if not horizontal
-            if not horizontal and len(data) > 5:
+            if not horizontal and len(safe) > 5:
                 plt.xticks(rotation=45, ha='right')
             
             # Tight layout
