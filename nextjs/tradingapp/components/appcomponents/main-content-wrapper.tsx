@@ -1,7 +1,8 @@
 "use client"
 
 import type React from "react"
-import { useSidebar, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
+import { useSidebar, SidebarInset } from "@/components/ui/sidebar"
+import { AppHeader } from "@/components/appcomponents/AppHeader"
 
 export function MainContentWrapper({ children }: { children: React.ReactNode }) {
   const { open, setOpen, isMobile } = useSidebar()
@@ -16,10 +17,7 @@ export function MainContentWrapper({ children }: { children: React.ReactNode }) 
 
   return (
     <SidebarInset onClick={handleMainContentClick}>
-      <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
-        <SidebarTrigger className="-ml-1" />
-        <h1 className="text-lg font-semibold">Crypto Dashboard</h1>
-      </header>
+      <AppHeader />
       {children}
     </SidebarInset>
   )
