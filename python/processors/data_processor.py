@@ -6,13 +6,74 @@ This module provides functionality for processing and transforming financial dat
 
 import logging
 import re
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Union, Tuple, Iterable
 
 import pandas as pd
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# -----------------------
+# Trading data validation
+# -----------------------
+
+# Bounds per symbol with conservative sanity ranges
+BOUNDS: Dict[str, Tuple[float, float]] = {
+    "BTC": (10, 2_000_000),
+    "ETH": (1, 200_000),
+    "SOL": (0.001, 20_000),
+    "XRP": (0.00001, 10_000),
+    "BNB": (0.01, 100_000),
+}
+DEFAULT_BOUNDS: Tuple[float, float] = (1e-12, 1_000_000_000)
+
+
+def parse_numeric(value: Any) -> Optional[float]:
+    """
+    Robust numeric parser.
+    Accepts: "$42,001.25", "€3,100", "42k", "1.2M", "0.00000012", ints/floats, or None.
+    Returns float or None on failure.
+    """
+    if value is None:
+        return None
+    import numpy as _np  # local import to avoid global if numpy missing at runtime
+    if isinstance(value, (int, float)) or str(type(value)).endswith("numpy.float64'>"):
+        try:
+            return float(value)
+        except Exception:
+            return None
+
+    s = str(value).strip()
+    if not s:
+        return None
+
+    # Remove common currency and percent symbols
+    s = s.replace(",", "").replace("$", "").replace("€", "").replace("£", "").replace("%", "")
+    mult = 1.0
+    if s and s[-1].upper() in ("K", "M", "B", "T"):
+        suffix = s[-1].upper()
+        s = s[:-1]
+        mult = {"K": 1e3, "M": 1e6, "B": 1e9, "T": 1e12}.get(suffix, 1.0)
+
+    try:
+        return float(s) * mult
+    except Exception:
+        # Last resort: strip any non-numeric except dot and sign
+        s2 = re.sub(r"[^\d\.\-+eE]", "", s)
+        try:
+            return float(s2) * mult if s2 else None
+        except Exception:
+            return None
+
+
+def in_bounds(symbol: str, price: float) -> bool:
+    lo, hi = BOUNDS.get(symbol.upper(), DEFAULT_BOUNDS)
+    return lo <= price <= hi
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 class DataProcessor:
@@ -27,6 +88,208 @@ class DataProcessor:
         """Initialize the data processor."""
         pass
     
+    def validate_prices(self, rows: List[Dict[str, Any]]) -> Tuple[pd.DataFrame, set, Dict[str, str]]:
+        """
+        Validate per-ticker rows with sanity checks.
+
+        Input rows schema (flexible):
+          - symbol (required)
+          - price (required, raw or numeric)
+          - volume (optional)
+          - change_24h (optional)
+          - currency (optional; prefer USD)
+          - ts (optional; will be set to UTC now if missing)
+          - source (optional)
+
+        Returns:
+          cleaned_df: rows that passed validation
+          needs_fallback: set of symbols that failed validation or flagged as stale
+          reasons: map symbol -> reason string (e.g., 'out_of_bounds', 'x_symbol_same_price', 'constant_price_last_5')
+        """
+        if not rows:
+            return pd.DataFrame(columns=["symbol", "price", "volume", "change_24h", "currency", "ts", "source"]), set(), {}
+
+        # Normalize rows into DataFrame
+        df = pd.DataFrame(rows).copy()
+
+        # Ensure required columns
+        for col in ("symbol", "price"):
+            if col not in df.columns:
+                df[col] = np.nan
+
+        # Normalize timestamp column
+        if "ts" not in df.columns:
+            df["ts"] = utc_now_iso()
+        else:
+            # Coerce to ISO strings
+            df["ts"] = df["ts"].apply(lambda x: pd.to_datetime(x).isoformat() if pd.notna(x) else utc_now_iso())
+
+        # Parse numerics
+        for col in ("price", "volume", "change_24h"):
+            if col in df.columns:
+                df[col] = df[col].apply(parse_numeric)
+
+        # Currency default
+        if "currency" not in df.columns:
+            df["currency"] = "USD"
+        df["currency"] = df["currency"].fillna("USD")
+
+        # Basic invalid reasons
+        df["invalid_reason"] = None
+        # NaN or non-positive
+        df.loc[df["price"].isna(), "invalid_reason"] = "price_nan"
+        df.loc[df["price"].notna() & (df["price"] <= 0), "invalid_reason"] = "price_nonpositive"
+
+        # Out-of-bounds per ticker
+        def _check_bounds(row):
+            if row["invalid_reason"] is not None:
+                return row["invalid_reason"]
+            try:
+                if not in_bounds(str(row.get("symbol", "")).upper(), float(row["price"])):
+                    return "out_of_bounds"
+            except Exception:
+                return "bounds_eval_error"
+            return None
+
+        df["invalid_reason"] = df.apply(_check_bounds, axis=1)
+
+        # Cross-symbol identical price at same timestamp
+        try:
+            ok = df[df["invalid_reason"].isna() & df["price"].notna()]
+            if not ok.empty:
+                grp = ok.groupby(["ts", "price"])["symbol"].nunique().reset_index(name="n")
+                dup = grp[grp["n"] > 1][["ts", "price"]]
+                if not dup.empty:
+                    mark_idx = dup.merge(df, on=["ts", "price"], how="left").index
+                    df.loc[mark_idx, "invalid_reason"] = df.loc[mark_idx, "invalid_reason"].fillna("x_symbol_same_price")
+        except Exception:
+            pass
+
+        # Constant price sequences detection per symbol (last 5 samples identical)
+        flagged_symbols: set = set()
+        reasons: Dict[str, str] = {}
+        try:
+            df_sorted = df.sort_values(["symbol", "ts"])
+            for sym, g in df_sorted.groupby("symbol"):
+                prices = g["price"].dropna().values
+                if len(prices) >= 5 and len(set(prices[-5:])) == 1:
+                    flagged_symbols.add(sym)
+                    reasons[sym] = "constant_price_last_5"
+        except Exception:
+            pass
+
+        invalid = df[df["invalid_reason"].notna()]
+        needs_fallback = set(invalid["symbol"].dropna().unique()).union(flagged_symbols)
+
+        cleaned_df = df[df["invalid_reason"].isna()].copy()
+
+        return cleaned_df, needs_fallback, reasons
+
+    def get_fallback_prices(self, symbols: Iterable[str], prefer: str = "coingecko") -> List[Dict[str, Any]]:
+        """
+        Retrieve fallback prices for symbols from trusted feeds (CoinGecko/CoinMarketCap).
+        Returns list of normalized rows with currency set to USD and ts in UTC ISO.
+        """
+        results: List[Dict[str, Any]] = []
+        if not symbols:
+            return results
+
+        # Lazy imports to avoid circulars if any
+        try:
+            from python.scrapers.coingecko import CoinGeckoScraper  # type: ignore
+        except Exception:
+            try:
+                from .scrapers.coingecko import CoinGeckoScraper  # type: ignore
+            except Exception:
+                CoinGeckoScraper = None  # type: ignore
+
+        try:
+            from python.scrapers.coinmarketcap import CoinMarketCapScraper  # type: ignore
+        except Exception:
+            try:
+                from .scrapers.coinmarketcap import CoinMarketCapScraper  # type: ignore
+            except Exception:
+                CoinMarketCapScraper = None  # type: ignore
+
+        providers = []
+        if prefer == "coingecko":
+            if CoinGeckoScraper:
+                providers.append(("coingecko", CoinGeckoScraper()))
+            if CoinMarketCapScraper:
+                providers.append(("coinmarketcap", CoinMarketCapScraper()))
+        else:
+            if CoinMarketCapScraper:
+                providers.append(("coinmarketcap", CoinMarketCapScraper()))
+            if CoinGeckoScraper:
+                providers.append(("coingecko", CoinGeckoScraper()))
+
+        # Attempt to fetch from each provider
+        for sym in set([str(s).upper() for s in symbols]):
+            row = None
+            for name, src in providers:
+                try:
+                    # Prefer structured APIs available
+                    if hasattr(src, "scrape_simple_prices"):
+                        data = src.scrape_simple_prices([sym])
+                        rec = data.get(sym)
+                        if rec:
+                            row = {
+                                "symbol": sym,
+                                "price": parse_numeric(rec.get("price")),
+                                "volume": parse_numeric(rec.get("volume_24h") or rec.get("usd_24h_vol")),
+                                "change_24h": parse_numeric(rec.get("change_24h")),
+                                "currency": "USD",
+                                "ts": utc_now_iso(),
+                                "source": f"{name}_fallback",
+                            }
+                            break
+                    elif hasattr(src, "scrape"):
+                        data = src.scrape([sym])
+                        crypto = data.get("cryptocurrencies", {}).get(sym)
+                        if crypto:
+                            row = {
+                                "symbol": sym,
+                                "price": parse_numeric(crypto.get("price")),
+                                "volume": parse_numeric(crypto.get("volume_24h")),
+                                "change_24h": parse_numeric(crypto.get("change_24h")),
+                                "currency": "USD",
+                                "ts": utc_now_iso(),
+                                "source": f"{name}_fallback",
+                            }
+                            break
+                except Exception as e:
+                    logger.debug(f"Fallback provider {name} failed for {sym}: {e}")
+                    continue
+
+            if row and row.get("price") is not None and row.get("price", 0) > 0:
+                results.append(row)
+
+        return results
+
+    def process_trading_rows(self, raw_rows: List[Dict[str, Any]]) -> Tuple[pd.DataFrame, set, Dict[str, str]]:
+        """
+        Entry point to validate rows and apply fallback substitution.
+        Returns a cleaned DataFrame, blocked symbols set, and reasons map.
+        """
+        cleaned, needs_fallback, reasons = self.validate_prices(raw_rows)
+
+        if needs_fallback:
+            fb_rows = self.get_fallback_prices(needs_fallback, prefer="coingecko")
+            if fb_rows:
+                fb_cleaned, _, _ = self.validate_prices(fb_rows)
+                cleaned = pd.concat([cleaned, fb_cleaned], ignore_index=True)
+
+        # Block symbols that still have no valid row after fallback
+        if not cleaned.empty:
+            valid_syms = set(cleaned["symbol"].unique())
+            still_blocked = set([s for s in needs_fallback if s not in valid_syms])
+        else:
+            still_blocked = needs_fallback.copy()
+
+        blocked = set(still_blocked).union({s for s, r in reasons.items() if r.startswith("constant_price")})
+
+        return cleaned, blocked, reasons
+
     def process(self, data: Dict) -> Dict:
         """
         Process data from various sources.

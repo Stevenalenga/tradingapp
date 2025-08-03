@@ -54,14 +54,6 @@ sources:
   cointelegraph:
     enabled: true
     include_news: true
-    urls:
-      - https://cointelegraph.com/tags/altcoin
-      - https://cointelegraph.com/category/latest-news
-      - https://cointelegraph.com/tags/bitcoin
-      - https://cointelegraph.com/markets
-      - https://cointelegraph.com/tags/ethereum
-      - https://cointelegraph.com/tags/blockchain
-      - https://cointelegraph.com/tags/regulation
     cryptocurrencies:
       - BTC
       - ETH

@@ -445,6 +445,39 @@ class TradingAgent:
             json.dump(bundle, f, indent=2)
         self.logger.info(f"Wrote analysis bundle to {out_path}")
 
+        # Optionally also persist a human-readable .txt analysis alongside JSON bundle
+        try:
+            text_filename = None
+            # If single report, write just that analysis
+            if len(reports) == 1:
+                text_content = reports[0].get("analysis", "")
+                text_filename = f"agent_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            else:
+                # Multi-report: prepend executive summary if present, then append each report with separators
+                parts = []
+                exec_summary = bundle.get("executive_summary")
+                if exec_summary:
+                    parts.append("Executive Summary:")
+                    for i, line in enumerate(exec_summary, 1):
+                        parts.append(f"{i}. {line}")
+                    parts.append("\n")
+                for idx, rep in enumerate(reports, 1):
+                    parts.append(f"[Report {idx}] Model: {rep.get('model')}")
+                    arts = rep.get("artifacts", {})
+                    parts.append(f"Data: {arts.get('data')}")
+                    parts.append(f"Visualization: {arts.get('visualization')}")
+                    parts.append("Analysis:\n")
+                    parts.append(rep.get("analysis", ""))
+                    parts.append("\n" + "-"*80 + "\n")
+                text_content = "\n".join(parts)
+                text_filename = f"agent_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            txt_path = os.path.join(self.agent_cfg.data_dir, text_filename)
+            with open(txt_path, "w", encoding="utf-8") as tf:
+                tf.write(text_content)
+            self.logger.info(f"Wrote analysis text to {txt_path}")
+        except Exception as e:
+            self.logger.warning(f"Failed to write analysis text file: {e}")
+
         # For console output, if single report return its shape, otherwise summarize
         if len(reports) == 1:
             return reports[0]
@@ -547,6 +580,8 @@ def parse_args():
     parser.add_argument("--analyze-all", action="store_true", help="Analyze all available artifacts found in ./python/data and ./python/visualization")
     parser.add_argument("--data-path", type=str, help="Optional explicit path to data file for analysis (csv/json)")
     parser.add_argument("--viz-path", type=str, help="Optional explicit path to visualization file for analysis (png/jpg/svg/pdf/html)")
+    # Output controls
+    parser.add_argument("--analysis-text-file", type=str, help="Optional filename to also save the generated analysis as plain text under ./python/data (e.g., final_analysis.txt)")
     # Model controls
     parser.add_argument("--model", type=str, help="Override LLM model for this analysis call (default: from config llm.openrouter.model or 'openrouter/auto')")
     parser.add_argument("--set-model", type=str, help="Persistently set default LLM model in config under llm.openrouter.model (e.g., openrouter/auto, openrouter/anthropic/claude-3.5-sonnet, openrouter/openai/gpt-4o)")

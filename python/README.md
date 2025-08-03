@@ -16,6 +16,7 @@ This application provides a comprehensive solution for collecting, processing, s
 - **Data Visualization**: Generate charts and graphs for data analysis
 - **Scheduled Execution**: Automate data collection at configurable intervals
 - **Robust Error Handling**: Gracefully handle network issues, rate limiting, and site changes
+- **Coin Prices CSV Updater**: One-shot CLI to fetch and append CoinGecko USD prices for configured coins
 
 ## Supported Data Sources
 
@@ -90,48 +91,47 @@ sources:
   # Enable/disable CoinGecko API (free, 30 calls/min)
   coingecko:
     enabled: true
-    cryptocurrencies: [BTC, ETH, XRP, ADA, SOL]
+    cryptocurrencies:
+      - BTC
+      - ETH
+      - XRP
+      - ADA
+      - BNB
+      - LTC
+      - LINK
     include_market_data: true
     include_trending: false
-  
-  # Enable/disable CryptoPanic (API key recommended)
-  cryptopanic:
-    enabled: true
-    api_key: "your_api_key_here"  # Optional but recommended
-    cryptocurrencies: [BTC, ETH]
-    kind: news  # Options: news, media, all
-    filter_sentiment: rising  # Options: rising, hot, bullish, bearish, important
-    max_posts: 50
-  
-  # Enable/disable Fear & Greed Index
-  alternative_me:
-    enabled: true
-    days: 30  # Historical data days
-    include_historical: true
-  
-  # Other sources...
-  coindesk:
-    enabled: true
-    cryptocurrencies: [BTC]
-    include_news: true
-  
-  cryptoslate:
-    enabled: true
-    include_news: true
-    include_market_data: true
+storage:
+  path: ./data
+  type: csv
 ```
 
-### API Keys
+## CLI Help
 
-Some sources provide enhanced functionality with API keys:
+Show available options and flags:
+```bash
+python -m python.main --help
+```
 
-- **CryptoPanic**: Free API key provides access to more features and higher rate limits
-- **CoinGecko**: No API key required for basic usage (30 calls/min limit)
-- **Alternative.me**: No API key required
+## Update Coin Prices CSV (CoinGecko)
 
-To obtain API keys:
-1. **CryptoPanic**: Visit [cryptopanic.com/developers/api](https://cryptopanic.com/developers/api)
-2. Add your API keys to the `config.yaml` file
+Fetch current USD prices for all coins declared in `sources.coingecko.cryptocurrencies` and append them to a CSV for downstream analysis.
+
+Command:
+```bash
+python -m python.main --update-coin-prices --coin-prices-file coin_prices.csv
+```
+
+Behavior:
+- Reads coins from config at `sources.coingecko.cryptocurrencies`
+- Queries CoinGecko `/simple/price` in a single batched request
+- Appends rows to `<storage.path>/coin_prices.csv` (default file name), creating it if missing
+- CSV columns: `timestamp,symbol,coingecko_id,price_usd`
+
+Notes:
+- Only common symbols covered by the built-in static map are resolved:
+  BTC, ETH, XRP, ADA, SOL, DOT, MATIC, AVAX, LINK, UNI, LTC, BCH, ALGO, ATOM, VET
+- To add support for more symbols, extend the static map in [`python/scrapers/coingecko.py`](python/scrapers/coingecko.py:37).
 
 ## Documentation
 

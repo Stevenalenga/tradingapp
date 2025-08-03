@@ -29,8 +29,10 @@ class CoinGeckoScraper(BaseScraper):
     COINS_LIST_URL = BASE_URL + "/coins/list"
     SIMPLE_PRICE_URL = BASE_URL + "/simple/price"
     COINS_MARKETS_URL = BASE_URL + "/coins/markets"
+    COIN_DETAIL_URL = BASE_URL + "/coins/{id}"
     TRENDING_URL = BASE_URL + "/search/trending"
     GLOBAL_URL = BASE_URL + "/global"
+    SIMPLE_PRICE_MARKET_URL = BASE_URL + "/simple/price"
     
     # Mapping of common symbols to CoinGecko IDs
     SYMBOL_TO_ID = {
@@ -50,6 +52,21 @@ class CoinGeckoScraper(BaseScraper):
         'ATOM': 'cosmos',
         'VET': 'vechain'
     }
+    
+    @staticmethod
+    def to_coingecko_ids(symbols: List[str]) -> Dict[str, str]:
+        """
+        Map common ticker symbols to CoinGecko IDs using the static mapping,
+        leaving out any symbols that cannot be resolved.
+        Returns a dict of {symbol_upper: coingecko_id}
+        """
+        result: Dict[str, str] = {}
+        for sym in symbols or []:
+            s = (sym or "").upper()
+            cid = CoinGeckoScraper.SYMBOL_TO_ID.get(s)
+            if cid:
+                result[s] = cid
+        return result
     
     def __init__(self, **kwargs):
         """Initialize the CoinGecko scraper with base scraper parameters."""
@@ -215,7 +232,7 @@ class CoinGeckoScraper(BaseScraper):
                 'per_page': str(min(limit, 250)),
                 'page': '1',
                 'sparkline': 'false',
-                'price_change_percentage': '24h,7d'
+                'price_change_percentage': '1h,24h,7d,30d,200d,1y'
             }
             
             response = self._rate_limited_request(self.COINS_MARKETS_URL, params)
@@ -236,8 +253,12 @@ class CoinGeckoScraper(BaseScraper):
                         "market_cap": coin.get('market_cap', 0),
                         "market_cap_rank": coin.get('market_cap_rank', 0),
                         "volume_24h": coin.get('total_volume', 0),
-                        "change_24h": coin.get('price_change_percentage_24h', 0),
+                        "change_1h": coin.get('price_change_percentage_1h_in_currency', 0),
+                        "change_24h": coin.get('price_change_percentage_24h_in_currency', coin.get('price_change_percentage_24h', 0)),
                         "change_7d": coin.get('price_change_percentage_7d_in_currency', 0),
+                        "change_30d": coin.get('price_change_percentage_30d_in_currency', 0),
+                        "change_200d": coin.get('price_change_percentage_200d_in_currency', 0),
+                        "change_1y": coin.get('price_change_percentage_1y_in_currency', 0),
                         "circulating_supply": coin.get('circulating_supply', 0),
                         "total_supply": coin.get('total_supply', 0),
                         "max_supply": coin.get('max_supply', 0),
@@ -323,6 +344,66 @@ class CoinGeckoScraper(BaseScraper):
         except Exception as e:
             logger.error(f"Error scraping global data from CoinGecko: {e}")
             return {"error": str(e)}
+    
+    def fetch_coin_detail(self, coin_id: str, localization: bool = False) -> Dict:
+        """
+        Fetch detailed coin data for deeper analysis including categories, supply, ROI, and community/developer data.
+        This uses /coins/{id}?localization=...&tickers=false&market_data=true&community_data=true&developer_data=true&sparkline=false
+        """
+        try:
+            url = self.COIN_DETAIL_URL.format(id=coin_id)
+            params = {
+                "localization": str(localization).lower(),
+                "tickers": "false",
+                "market_data": "true",
+                "community_data": "true",
+                "developer_data": "true",
+                "sparkline": "false",
+            }
+            resp = self._rate_limited_request(url, params)
+            return resp.json()
+        except Exception as e:
+            logger.error(f"Error fetching coin detail for {coin_id}: {e}")
+            return {}
+    
+    def fetch_prices_for_symbols(self, symbols: List[str]) -> List[Dict[str, Union[str, float]]]:
+        """
+        Convenience helper to fetch USD prices for a list of ticker symbols using /simple/price,
+        returning a flat list suitable for CSV writing.
+        
+        Returns list of rows with keys:
+          timestamp (iso), symbol, coingecko_id, price_usd
+        """
+        try:
+            ids_map = self.to_coingecko_ids(symbols or [])
+            if not ids_map:
+                return []
+            params = {
+                'ids': ','.join(ids_map.values()),
+                'vs_currencies': 'usd',
+                'include_24hr_change': 'true',
+                'include_last_updated_at': 'true',
+                'precision': 'full'
+            }
+            resp = self._rate_limited_request(self.SIMPLE_PRICE_MARKET_URL, params)
+            data = resp.json() if resp is not None else {}
+            ts = datetime.now().isoformat()
+            rows: List[Dict[str, Union[str, float]]] = []
+            # reverse map id -> symbol
+            id_to_symbol = {cid: sym for sym, cid in ids_map.items()}
+            for cid, payload in (data or {}).items():
+                rows.append({
+                    "timestamp": ts,
+                    "symbol": id_to_symbol.get(cid, ""),
+                    "coingecko_id": cid,
+                    "price_usd": float(payload.get("usd", 0.0) or 0.0),
+                    "change_24h_pct": float(payload.get("usd_24h_change", 0.0) or 0.0),
+                    "last_updated_at": payload.get("last_updated_at", None),
+                })
+            return rows
+        except Exception as e:
+            logger.error(f"Error fetching prices for symbols via CoinGecko: {e}")
+            return []
     
     def get_coin_id(self, symbol: str) -> Optional[str]:
         """

@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-def analyze_trends(data: pd.DataFrame, coin: str, risk_level='medium'):
+def analyze_trends(data: pd.DataFrame, coin: str, risk_level='medium', blocked_symbols: set | None = None):
     """
     Analyze the coin price trend and suggest take-profit and stop-loss points.
 
@@ -10,15 +10,25 @@ def analyze_trends(data: pd.DataFrame, coin: str, risk_level='medium'):
         data (pd.DataFrame): DataFrame with 'price' and 'forecast' columns
         coin (str): Coin symbol e.g., 'BTC', 'XRP'
         risk_level (str): Risk preference - 'low', 'medium', or 'high'
+        blocked_symbols (set|None): Symbols disallowed for trading this cycle (validation/fallback flags)
 
     Returns:
         dict: Strategy with stop_loss and take_profit
     """
+    blocked_symbols = blocked_symbols or set()
+    if coin in blocked_symbols:
+        # Do not generate signals for blocked tickers per data-quality policy
+        return {
+            'coin': coin,
+            'blocked': True,
+            'reason': 'data_quality_blocked',
+        }
+
     if coin not in data.columns:
         raise ValueError(f"{coin} data not found in input DataFrame")
 
     price_now = data[coin].iloc[-1]
-    forecast = data[f"{coin}_forecast"].iloc[-1]
+    forecast = data.get(f"{coin}_forecast", pd.Series([price_now])).iloc[-1]
 
     # Risk-adjusted factors
     risk_multipliers = {

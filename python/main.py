@@ -28,6 +28,7 @@ from storage.sqlite_storage import SQLiteStorage
 from utils.config import Config
 from utils.logger import setup_logger
 from visualization.data_visualizer import DataVisualizer
+from typing import Any
 
 
 class TradingApp:
@@ -64,7 +65,7 @@ class TradingApp:
     
     def _init_components(self):
         """Initialize application components."""
-        # Initialize scrapers
+        # Initialize scrapers that are enabled by YAML
         self.scrapers = {}
         if self.config.get('sources.yahoo_finance.enabled', True):
             self.scrapers['yahoo_finance'] = YahooFinanceScraper()
@@ -89,6 +90,18 @@ class TradingApp:
         
         if self.config.get('sources.alternative_me.enabled', False):
             self.scrapers['alternative_me'] = AlternativeMeScraper()
+
+        # Registry of all known scrapers for on-demand instantiation via --sources
+        self.scraper_factories = {
+            'yahoo_finance': YahooFinanceScraper,
+            'cnbc': CNBCScraper,
+            'cointelegraph': CoinTelegraphScraper,
+            'coindesk': CoinDeskScraper,
+            'coingecko': CoinGeckoScraper,
+            'cryptoslate': CryptoSlateScraper,
+            'coinmarketcap': CoinMarketCapScraper,
+            'alternative_me': AlternativeMeScraper,
+        }
         
         # Initialize processor
         self.processor = DataProcessor()
@@ -127,11 +140,27 @@ class TradingApp:
             
             # Determine which sources to scrape
             if not sources:
-                # Strictly derive sources from YAML enablement, not from code defaults
-                sources = [name for name, scraper in self.scrapers.items()]
+                # Use all currently enabled/instantiated sources from YAML
+                sources = [name for name in self.scrapers.keys()]
             else:
-                # Filter out sources that are not available (only those enabled/instantiated from YAML)
-                sources = [s for s in sources if s in self.scrapers]
+                # Normalize requested sources
+                sources = [s.strip().lower() for s in sources if isinstance(s, str) and s.strip()]
+                resolved = []
+                for s in sources:
+                    # If already instantiated (enabled via YAML), keep it
+                    if s in self.scrapers:
+                        resolved.append(s)
+                        continue
+                    # Instantiate on-demand if known in registry
+                    factory = getattr(self, "scraper_factories", {}).get(s)
+                    if factory:
+                        try:
+                            self.scrapers[s] = factory()
+                            resolved.append(s)
+                            self.logger.debug(f"Instantiated scraper on-demand for source '{s}' via CLI override")
+                        except Exception as e:
+                            self.logger.error(f"Failed to instantiate scraper for '{s}': {e}")
+                sources = resolved
             
             if not sources:
                 self.logger.warning("No valid sources specified")
@@ -471,6 +500,19 @@ def parse_arguments():
         help='Enable verbose logging'
     )
     
+    # New: one-shot task to fetch CoinGecko prices for configured coins and write CSV
+    parser.add_argument(
+        '--update-coin-prices',
+        action='store_true',
+        help='Fetch USD prices for coins listed in config.sources.coingecko.cryptocurrencies and append to CSV'
+    )
+    parser.add_argument(
+        '--coin-prices-file',
+        type=str,
+        default='coin_prices.csv',
+        help='CSV filename (within storage.path) to write coin prices into (default: coin_prices.csv)'
+    )
+    
     return parser.parse_args()
 
 
@@ -490,6 +532,29 @@ def main():
         # Override configuration with command-line arguments
         if args.output:
             app.config.set('storage.type', args.output)
+        
+        # Short-circuit mode: update coin prices to CSV and exit
+        if getattr(args, "update_coin_prices", False):
+            # Resolve coins list from config
+            coins = app.config.get('sources.coingecko.cryptocurrencies', []) or []
+            if not isinstance(coins, list):
+                coins = []
+            # Use the CoinGecko scraper helper to fetch prices
+            scraper = app.scraper_factories.get('coingecko', CoinGeckoScraper)()
+            rows = scraper.fetch_prices_for_symbols(coins)
+            # Prepare CSV rows for storage.csv_storage
+            # CSVStorage.store/append expects dict/list/pd.DataFrame. We want to append.
+            # Ensure columns: timestamp,symbol,coingecko_id,price_usd
+            from pandas import DataFrame  # type: ignore
+            df = DataFrame(rows, columns=["timestamp", "symbol", "coingecko_id", "price_usd"])
+            # Write using CSV storage at configured path
+            storage_path = app.config.get('storage.path', './data')
+            csv_storage = CSVStorage(storage_path)
+            filename = getattr(args, "coin_prices_file", "coin_prices.csv") or "coin_prices.csv"
+            # Append to existing file or create if missing
+            csv_storage.append(df, filename)
+            app.logger.info(f"Coin prices written to {os.path.join(storage_path, filename if filename.endswith('.csv') else filename + '.csv')}")
+            return
         
         # Parse sources if provided
         sources = None
