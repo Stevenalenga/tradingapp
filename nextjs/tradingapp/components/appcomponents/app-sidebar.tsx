@@ -14,6 +14,11 @@ import {
   ChevronUp,
   User,
   CreditCard,
+  FolderKanban,
+  Plus,
+  Pencil,
+  Trash2,
+  ArrowRightLeft,
 } from "lucide-react"
 
 import {
@@ -30,9 +35,16 @@ import {
   SidebarRail,
   SidebarMenuAction,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible" // Added for collapsible menu
+import dynamic from "next/dynamic"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+
+const PortfolioSwitcher = dynamic(
+  () => import("./PortfolioSwitcher").then((m) => m.PortfolioSwitcher),
+  { ssr: false }
+)
 
 export function AppSidebar() {
   const mainNavigation = [
@@ -72,40 +84,25 @@ export function AppSidebar() {
   ]
 
   const router = useRouter();
+  const { toggleSidebar } = useSidebar()
 
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <SidebarMenuButton
-                  size="lg"
-                  className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-                >
-                  <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                    <Wallet className="size-4" />
-                  </div>
-                  <div className="flex flex-col gap-0.5 leading-none">
-                    <span className="font-semibold">My Portfolio</span>
-                    <span className="text-xs text-sidebar-foreground/70">Active</span>
-                  </div>
-                  <ChevronDown className="ml-auto" />
-                </SidebarMenuButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width]" align="start">
-                <DropdownMenuItem>
-                  <span>Switch Portfolio</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem>
-                  <span>Create New</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <SidebarMenuAction asChild>
-              <SidebarTrigger />
-            </SidebarMenuAction>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-2 py-1.5 rounded-md hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus:outline-none"
+              onClick={toggleSidebar}
+              aria-label="Toggle sidebar"
+              title="Toggle sidebar"
+            >
+              <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+                <Wallet className="size-4" />
+              </div>
+      
+            </button>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
@@ -125,6 +122,69 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+
+              {/* Portfolio dropdown menu */}
+              <SidebarMenuItem>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <SidebarMenuButton>
+                      <FolderKanban />
+                      <span>Portfolio</span>
+                      <ChevronDown className="ml-auto" />
+                    </SidebarMenuButton>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-[--radix-popper-anchor-width]" align="start">
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.preventDefault()
+                        // Open the PortfolioSwitcher to choose name via its inline create action
+                        // We navigate to dashboard where the editor lives, if needed
+                        router.push("/dashboard")
+                      }}
+                      className="gap-2"
+                    >
+                      <Plus className="size-4" />
+                      Create
+                    </DropdownMenuItem>
+
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.preventDefault()
+                        // Navigate to dashboard and let user edit via PortfolioEditor and currently selected portfolio
+                        router.push("/dashboard")
+                      }}
+                      className="gap-2"
+                    >
+                      <Pencil className="size-4" />
+                      Edit
+                    </DropdownMenuItem>
+
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.preventDefault()
+                        // Open the switcher popover by routing to dashboard first; deletion is supported in switcher
+                        router.push("/dashboard")
+                      }}
+                      className="gap-2 text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="size-4" />
+                      Delete
+                    </DropdownMenuItem>
+
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.preventDefault()
+                        // Navigate to a portfolio area; we route to dashboard where PortfolioSwitcher is available
+                        router.push("/dashboard")
+                      }}
+                      className="gap-2"
+                    >
+                      <ArrowRightLeft className="size-4" />
+                      Navigate
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

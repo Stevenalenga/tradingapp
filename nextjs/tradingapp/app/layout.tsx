@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import "./globals.css"
 import { MainContentWrapper } from "../components/appcomponents/main-content-wrapper"
 import { Toaster } from "sonner"
+import { PortfolioProvider } from "@/components/appcomponents/PortfolioProvider"
 
 export default async function RootLayout({
   children,
@@ -18,10 +19,12 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <body className={cn("min-h-screen bg-background font-sans antialiased")}>
-        <SidebarProvider defaultOpen={defaultOpen}>
-          <AppSidebar />
-          <MainContentWrapper>{children}</MainContentWrapper>
-        </SidebarProvider>
+        <PortfolioProvider>
+          <SidebarProvider defaultOpen={defaultOpen}>
+            <AppSidebar />
+            <MainContentWrapper>{children}</MainContentWrapper>
+          </SidebarProvider>
+        </PortfolioProvider>
         <Toaster />
       </body>
     </html>
